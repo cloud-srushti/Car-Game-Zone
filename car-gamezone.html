@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>3D Car Game with AWS Score Save</title>
+  <style>
+    html, body { margin:0; height:100%; overflow:hidden; background:#111; }
+    #game { width:100%; height:100%; display:block; }
+    #hud {
+      position:absolute; top:10px; left:10px; color:white; font-family:sans-serif;
+      background:rgba(0,0,0,0.5); padding:10px; border-radius:8px;
+    }
+    #hud span { display:block; margin-top:5px; }
+    #btnStart {
+      background:#ff4444; border:none; color:white; padding:8px 14px;
+      border-radius:6px; cursor:pointer; font-weight:bold;
+    }
+    #btnStart:hover { background:#ff6666; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div>Player: <span id="playerName"></span></div>
+    <div>Score: <span id="score">0</span></div>
+    <div>Highscore: <span id="highscore">0</span></div>
+    <button id="btnStart">Start Game</button>
+  </div>
+  <canvas id="game"></canvas>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+  // === AWS API URLs ===
+  const API_SUBMIT = "https://YOUR_API_ENDPOINT/submit-score"; // replace later
+  const API_GET = "https://YOUR_API_ENDPOINT/get-highscore";  // optional
+
+  // === Game Variables ===
+  let scene, camera, renderer, car, road;
+  let score = 0, running = false;
+  let playerName = localStorage.getItem("playerName") || "";
+
+  async function initGame() {
+    // ask for name if not stored
+    if (!playerName) {
+      playerName = prompt("Enter your name", "srushti shinde") || "guest";
+      localStorage.setItem("playerName", playerName);
+    }
+    document.getElementById("playerName").textContent = playerName;
+
+    // Setup scene
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({canvas:document.getElementById("game")});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.position.set(0, 2, 5);
+
+    // Simple road
+    const roadGeo = new THREE.PlaneGeometry(4, 100);
+    const roadMat = new THREE.MeshPhongMaterial({color:0x333333});
+    road = new THREE.Mesh(roadGeo, roadMat);
+    road.rotation.x = -Math.PI/2;
+    scene.add(road);
+
+    // Simple car (red box)
+    const carGeo = new THREE.BoxGeometry(1,0.5,2);
+    const carMat = new THREE.MeshPhongMaterial({color:0xff0000});
+    car = new THREE.Mesh(carGeo, carMat);
+    car.position.y = 0.3;
+    scene.add(car);
+
+    // Light
+    const light = new THREE.DirectionalLight(0xffffff,1);
+    light.position.set(0,10,10);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    if (running) {
+      score += 1;
+      document.getElementById("score").textContent = score;
+      car.position.z -= 0.1;
+      if (car.position.z < -50) {
+        endGame();
+      }
+    }
+    renderer.render(scene, camera);
+  }
+
+  async function endGame() {
+    running = false;
+    alert("Game Over! Your score: " + score);
+    await submitScore(score);
+    const data = await getPlayerBest(playerName);
+    if (data && data.best_score !== undefined) {
+      document.getElementById("highscore").textContent = data.best_score;
+    }
+    score = 0;
+    car.position.z = 0;
+  }
+
+  // === AWS Communication ===
+  async function submitScore(score) {
+    try {
+      const res = await fetch(API_SUBMIT, {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: playerName, score })
+      });
+      const data = await res.json();
+      console.log("Score submitted:", data);
+      return data;
+    } catch (err) {
+      console.error("Error submitting score", err);
+    }
+  }
+
+  async function getPlayerBest(name) {
+    try {
+      const res = await fetch(API_GET + "?name=" + encodeURIComponent(name));
+      const data = await res.json();
+      console.log("Best score:", data);
+      return data;
+    } catch (err) {
+      console.error("Error getting highscore", err);
+      return null;
+    }
+  }
+
+  document.getElementById("btnStart").addEventListener("click", async () => {
+    running = true;
+    document.getElementById("btnStart").disabled = true;
+    await initGame();
+  });
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+  </script>
+</body>
+</html>
